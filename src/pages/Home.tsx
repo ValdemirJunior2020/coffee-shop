@@ -73,7 +73,7 @@ export default function Home() {
     if (!selected) return;
     setSelectedId(selected.id);
     setActiveImg(selected.images[0] ?? null);
-  }, [selected?.id]);
+  }, [selected?.id]); // keep it simple
 
   const switchProduct = (id: string) => {
     const p = visibleProducts.find((x) => x.id === id);
@@ -175,7 +175,7 @@ export default function Home() {
               const isActive = img === activeImg;
               return (
                 <button
-                  key={`${selected.id}_${idx}_${img}`}
+                  key={`${selected.id}_${idx}_${img}`} // ✅ unique key
                   type="button"
                   onClick={() => setActiveImg(img)}
                   className={[
