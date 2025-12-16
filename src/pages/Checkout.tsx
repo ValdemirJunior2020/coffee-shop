@@ -144,25 +144,50 @@ export default function Checkout() {
     try {
       setSaving(true);
 
-      // Save to Supabase
-      const { error } = await supabase.from("orders").insert({
-        status: pending.status,
-        customer: pending.customer,
-        shipping: pending.shipping,
-        cart: pending.cart,
-        totals: pending.totals,
-        profit_estimate: pending.profitEstimate,
-        customer_email: pending.customer.email,
-      });
+      // 1) Save to Supabase and get the inserted row id
+      const { data, error } = await supabase
+        .from("orders")
+        .insert({
+          status: pending.status,
+          customer: pending.customer,
+          shipping: pending.shipping,
+          cart: pending.cart,
+          totals: pending.totals,
+          profit_estimate: pending.profitEstimate,
+          customer_email: pending.customer.email,
+        })
+        .select("id")
+        .single();
 
-      if (error) {
+      if (error || !data?.id) {
         console.error(error);
         alert("Saved locally ✅ but Supabase failed. Check console.");
         return;
       }
 
-      alert("Saved ✅ Order stored in Supabase!");
-      // Next step will be Stripe payment; for now we keep you on checkout.
+      const orderId = data.id;
+
+      // 2) Call Edge Function to create Stripe Checkout session
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+        "create-checkout-session",
+        { body: { orderId } }
+      );
+
+      if (fnErr) {
+        console.error(fnErr);
+        alert("Order saved ✅ but Stripe session failed. Check console.");
+        return;
+      }
+
+      const url = (fnData as any)?.url;
+      if (!url) {
+        console.error("Missing Stripe url", fnData);
+        alert("Order saved ✅ but Stripe URL missing.");
+        return;
+      }
+
+      // 3) Redirect to Stripe Checkout
+      window.location.href = url;
     } finally {
       setSaving(false);
     }
@@ -298,7 +323,7 @@ export default function Checkout() {
             disabled={saving}
             onClick={saveAndContinue}
           >
-            {saving ? "Saving..." : "Save Shipping Info"}
+            {saving ? "Saving..." : "Pay with Stripe"}
           </button>
         </div>
       </div>
@@ -329,7 +354,7 @@ export default function Checkout() {
         </div>
 
         <div className="mt-5 text-xs text-zinc-500">
-          Next: Stripe payment + Admin Orders page (read orders from Supabase).
+          You’ll be redirected to Stripe Checkout to complete payment.
         </div>
       </div>
     </div>
