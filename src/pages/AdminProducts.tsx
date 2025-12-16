@@ -1,339 +1,248 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabaseClient";
+import type { Product } from "../lib/types";
 
-type Product = {
-  id: string;
-  title: string;
-  basePrice: number; // Temu price
-  description: string;
-  images: string; // comma-separated paths e.g. /first.png,/second.png
-  active: boolean;
-  createdAt: string;
+const empty: Product = {
+  title: "",
+  description: "",
+  base_price: 0,
+  margin_pct: 50,
+  display_image: "",
+  gallery: []
 };
 
-const ADMIN_KEY = "coffee_shop_admin_authed_v1";
-const PRODUCTS_KEY = "coffee_shop_products_v1";
-const MAX_PRODUCTS = 5;
-
-// +50% margin
-const sellPrice = (base: number) => Math.round(base * 1.5 * 100) / 100;
-
-function loadProducts(): Product[] {
-  const raw = localStorage.getItem(PRODUCTS_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as Product[];
-  } catch {
-    return [];
-  }
-}
-
-function saveProducts(products: Product[]) {
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-}
-
-function uid() {
-  return crypto.randomUUID ? crypto.randomUUID() : `p_${Date.now()}_${Math.random()}`;
-}
-
 export default function AdminProducts() {
-  const nav = useNavigate();
-
-  const [products, setProducts] = useState<Product[]>([]);
+  const [items, setItems] = useState<Product[]>([]);
+  const [form, setForm] = useState<Product>(empty);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [title, setTitle] = useState("");
-  const [basePrice, setBasePrice] = useState<string>(""); // keep as string for input
-  const [description, setDescription] = useState("");
-  const [images, setImages] = useState(""); // "/first.png,/second.png"
-  const [active, setActive] = useState(true);
+  const sell = useMemo(() => {
+    const base = Number(form.base_price || 0);
+    const pct = Number(form.margin_pct || 50);
+    return Math.round(base * (1 + pct / 100) * 100) / 100;
+  }, [form.base_price, form.margin_pct]);
 
-  // auth guard
-  useEffect(() => {
-    const authed = localStorage.getItem(ADMIN_KEY) === "true";
-    if (!authed) nav("/admin/login");
-  }, [nav]);
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  // load products on mount
-  useEffect(() => {
-    setProducts(loadProducts());
-  }, []);
+    setLoading(false);
 
-  const remaining = useMemo(() => MAX_PRODUCTS - products.length, [products.length]);
-
-  const resetForm = () => {
-    setEditingId(null);
-    setTitle("");
-    setBasePrice("");
-    setDescription("");
-    setImages("");
-    setActive(true);
-  };
-
-  const startEdit = (p: Product) => {
-    setEditingId(p.id);
-    setTitle(p.title);
-    setBasePrice(String(p.basePrice));
-    setDescription(p.description);
-    setImages(p.images);
-    setActive(p.active);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const onSave = () => {
-    const bp = Number(basePrice);
-    if (!title.trim()) return alert("Title is required.");
-    if (!Number.isFinite(bp) || bp <= 0) return alert("Base price must be a valid number > 0.");
-    if (!description.trim()) return alert("Description is required.");
-    if (!images.trim()) return alert("Images are required. Example: /first.png,/second.png");
-
-    // enforce max products only when adding new
-    if (!editingId && products.length >= MAX_PRODUCTS) {
-      return alert(`You can only add up to ${MAX_PRODUCTS} products.`);
+    if (error) {
+      console.error(error);
+      alert("Failed to load products. Check RLS/table.");
+      return;
     }
 
-    const next: Product[] = editingId
-      ? products.map((p) =>
-          p.id === editingId
-            ? { ...p, title: title.trim(), basePrice: bp, description: description.trim(), images: images.trim(), active }
-            : p
-        )
-      : [
-          ...products,
-          {
-            id: uid(),
-            title: title.trim(),
-            basePrice: bp,
-            description: description.trim(),
-            images: images.trim(),
-            active,
-            createdAt: new Date().toISOString(),
-          },
-        ];
-
-    setProducts(next);
-    saveProducts(next);
-    resetForm();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setItems((data as any[]) as Product[]);
   };
 
-  const onDelete = (id: string) => {
-    const ok = confirm("Delete this product?");
-    if (!ok) return;
-    const next = products.filter((p) => p.id !== id);
-    setProducts(next);
-    saveProducts(next);
-    if (editingId === id) resetForm();
+  useEffect(() => {
+    load();
+  }, []);
+
+  const save = async () => {
+    if (!form.title.trim()) return alert("Title required");
+    if (!form.description.trim()) return alert("Description required");
+    if (!form.display_image.trim()) return alert("Display image required (ex: /product-3.png)");
+
+    const payload = {
+      title: form.title,
+      description: form.description,
+      base_price: Number(form.base_price || 0),
+      margin_pct: Number(form.margin_pct || 50),
+      display_image: form.display_image,
+      gallery: form.gallery || []
+    };
+
+    setLoading(true);
+
+    if (editingId) {
+      const { error } = await supabase.from("products").update(payload).eq("id", editingId);
+      setLoading(false);
+      if (error) return alert(error.message);
+      setEditingId(null);
+      setForm(empty);
+      await load();
+      return;
+    }
+
+    const { error } = await supabase.from("products").insert(payload);
+    setLoading(false);
+    if (error) return alert(error.message);
+
+    setForm(empty);
+    await load();
   };
 
-  const onLogout = () => {
-    localStorage.removeItem(ADMIN_KEY);
-    nav("/admin/login");
+  const edit = (p: any) => {
+    setEditingId(p.id);
+    setForm({
+      title: p.title,
+      description: p.description,
+      base_price: Number(p.base_price ?? 0),
+      margin_pct: Number(p.margin_pct ?? 50),
+      display_image: p.display_image,
+      gallery: p.gallery || []
+    });
+  };
+
+  const del = async (id?: string) => {
+    if (!id) return;
+    if (!confirm("Delete product?")) return;
+    const { error } = await supabase.from("products").delete().eq("id", id);
+    if (error) return alert(error.message);
+    await load();
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div className="space-y-6">
+      <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold">Admin • Products</h1>
-          <p className="text-zinc-600">
-            Add / edit / delete products. Max <b>{MAX_PRODUCTS}</b>. Sell price auto = base +50%.
-          </p>
+          <h1 className="text-3xl font-extrabold">Admin Products</h1>
+          <p className="text-zinc-600 text-sm">Add / edit / delete products in Supabase</p>
         </div>
-
-        <div className="flex gap-2">
-          <button
-            className="rounded-full border px-5 py-2 font-semibold hover:border-purple-700 hover:text-purple-700"
-            onClick={() => nav("/")}
-          >
-            View Store
-          </button>
-          <button
-            className="rounded-full bg-purple-700 text-white px-5 py-2 font-semibold hover:bg-purple-800"
-            onClick={onLogout}
-          >
-            Logout
-          </button>
-        </div>
+        {loading && <div className="text-sm text-zinc-500">Working…</div>}
       </div>
 
-      {/* Form */}
-      <div className="border rounded-2xl p-5 bg-white">
+      <div className="border rounded-2xl bg-white p-6 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-extrabold">
+          <div className="font-extrabold text-xl">
             {editingId ? "Edit Product" : "Add Product"}
-          </h2>
-          <div className="text-sm text-zinc-600">
-            Remaining slots: <b>{remaining}</b>
           </div>
+          {editingId && (
+            <button
+              onClick={() => {
+                setEditingId(null);
+                setForm(empty);
+              }}
+              className="rounded-full border px-4 py-2 font-semibold hover:border-wayfairPurple hover:text-wayfairPurple"
+            >
+              Cancel Edit
+            </button>
+          )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 mt-4">
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
             <label className="text-sm font-semibold">Title</label>
             <input
-              className="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Product title..."
+              className="mt-1 w-full border rounded-xl px-4 py-3"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
-          </div>
-
-          <div>
-            <label className="text-sm font-semibold">Base Price (Temu)</label>
-            <input
-              className="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700"
-              value={basePrice}
-              onChange={(e) => setBasePrice(e.target.value)}
-              placeholder="76.49"
-              inputMode="decimal"
-            />
-            <div className="text-xs text-zinc-500 mt-1">
-              Sell price will be:{" "}
-              <b>
-                {Number.isFinite(Number(basePrice)) && Number(basePrice) > 0
-                  ? `$${sellPrice(Number(basePrice)).toFixed(2)}`
-                  : "$—"}
-              </b>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-semibold">Active</label>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={(e) => setActive(e.target.checked)}
-              />
-              <span className="text-sm text-zinc-700">
-                Visible in store
-              </span>
-            </div>
           </div>
 
           <div className="md:col-span-2">
             <label className="text-sm font-semibold">Description</label>
             <textarea
-              className="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700 min-h-[110px]"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Product description..."
+              className="mt-1 w-full border rounded-xl px-4 py-3 min-h-[90px]"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold">Base price (Temu)</label>
+            <input
+              className="mt-1 w-full border rounded-xl px-4 py-3"
+              value={form.base_price}
+              onChange={(e) => setForm({ ...form, base_price: Number(e.target.value) })}
+              type="number"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold">Margin %</label>
+            <input
+              className="mt-1 w-full border rounded-xl px-4 py-3"
+              value={form.margin_pct}
+              onChange={(e) => setForm({ ...form, margin_pct: Number(e.target.value) })}
+              type="number"
+            />
+            <div className="text-xs text-zinc-500 mt-1">Sell: ${sell.toFixed(2)}</div>
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="text-sm font-semibold">Display image path</label>
+            <input
+              className="mt-1 w-full border rounded-xl px-4 py-3"
+              value={form.display_image}
+              onChange={(e) => setForm({ ...form, display_image: e.target.value })}
+              placeholder="/product-3.png"
             />
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-sm font-semibold">
-              Images (comma-separated public paths)
-            </label>
+            <label className="text-sm font-semibold">Gallery (comma separated paths)</label>
             <input
-              className="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700"
-              value={images}
-              onChange={(e) => setImages(e.target.value)}
-              placeholder="/first.png,/second.png,/third.png"
+              className="mt-1 w-full border rounded-xl px-4 py-3"
+              value={(form.gallery || []).join(",")}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  gallery: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                })
+              }
+              placeholder="/p3-1.png, /p3-2.png"
             />
-            <div className="text-xs text-zinc-500 mt-1">
-              Example: <b>/product-2.png,/product-2-1.png,/product-2-2.png</b>
-            </div>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mt-5">
-          <button
-            className="rounded-full bg-purple-700 text-white px-6 py-3 font-semibold hover:bg-purple-800"
-            onClick={onSave}
-          >
-            {editingId ? "Save Changes" : "Add Product"}
-          </button>
-
-          <button
-            className="rounded-full border px-6 py-3 font-semibold hover:border-purple-700 hover:text-purple-700"
-            onClick={resetForm}
-          >
-            Clear
-          </button>
-        </div>
+        <button
+          onClick={save}
+          className="w-full rounded-full bg-wayfairPurple text-white px-6 py-3 font-semibold hover:opacity-90"
+        >
+          {editingId ? "Update Product" : "Add Product"}
+        </button>
       </div>
 
-      {/* Table */}
-      <div className="border rounded-2xl bg-white overflow-hidden">
-        <div className="px-5 py-4 border-b">
-          <h2 className="text-xl font-extrabold">Saved Products</h2>
-          <p className="text-sm text-zinc-600">
-            These are stored locally for now. Next step we will connect Supabase.
-          </p>
-        </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {items.map((p: any) => (
+          <div key={p.id} className="border rounded-2xl bg-white p-4">
+            <div className="flex gap-3">
+              <img src={p.display_image} className="h-16 w-16 object-contain bg-zinc-50 rounded-xl" />
+              <div className="flex-1">
+                <div className="font-extrabold">{p.title}</div>
+                <div className="text-sm text-zinc-600 line-clamp-2">{p.description}</div>
+              </div>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-50">
-              <tr className="text-left">
-                <th className="p-3">Preview</th>
-                <th className="p-3">Title</th>
-                <th className="p-3">Base</th>
-                <th className="p-3">Sell (+50%)</th>
-                <th className="p-3">Active</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.length === 0 ? (
-                <tr>
-                  <td className="p-4 text-zinc-600" colSpan={6}>
-                    No products yet. Add your first one above.
-                  </td>
-                </tr>
-              ) : (
-                products.map((p) => {
-                  const firstImg = p.images.split(",")[0]?.trim() || "";
-                  return (
-                    <tr key={p.id} className="border-t">
-                      <td className="p-3">
-                        <div className="w-16 h-16 border rounded-xl bg-zinc-50 overflow-hidden flex items-center justify-center">
-                          {firstImg ? (
-                            <img
-                              src={firstImg}
-                              alt="preview"
-                              className="w-full h-full object-contain"
-                            />
-                          ) : (
-                            <span className="text-xs text-zinc-500">No image</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-3 min-w-[280px]">
-                        <div className="font-semibold">{p.title}</div>
-                        <div className="text-xs text-zinc-500 line-clamp-1">
-                          {p.description}
-                        </div>
-                      </td>
-                      <td className="p-3">${p.basePrice.toFixed(2)}</td>
-                      <td className="p-3">${sellPrice(p.basePrice).toFixed(2)}</td>
-                      <td className="p-3">{p.active ? "Yes" : "No"}</td>
-                      <td className="p-3">
-                        <div className="flex gap-2">
-                          <button
-                            className="rounded-full border px-4 py-1 font-semibold hover:border-purple-700 hover:text-purple-700"
-                            onClick={() => startEdit(p)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="rounded-full border px-4 py-1 font-semibold hover:border-red-600 hover:text-red-600"
-                            onClick={() => onDelete(p.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <div>
+                <div className="text-zinc-500">Base</div>
+                <div className="font-semibold">${Number(p.base_price ?? 0).toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-zinc-500">Margin</div>
+                <div className="font-semibold">{Number(p.margin_pct ?? 50)}%</div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => edit(p)}
+                className="flex-1 rounded-full border px-4 py-2 font-semibold hover:border-wayfairPurple hover:text-wayfairPurple"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => del(p.id)}
+                className="flex-1 rounded-full border px-4 py-2 font-semibold text-red-600 hover:border-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

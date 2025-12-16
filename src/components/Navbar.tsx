@@ -1,138 +1,148 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+// src/components/Navbar.tsx
+import { useEffect, useMemo, useState } from "react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { cartCount } from "../lib/cartStore";
 
 const CATEGORIES = [
-  "Furniture",
-  "Outdoor",
-  "Bedding & Bath",
-  "Rugs",
-  "Decor & Pillows",
-  "Lighting",
-  "Organization",
-  "Kitchen",
-  "Baby & Kids",
-  "Home Improvement",
-  "Appliances",
-  "Pet",
-  "Holiday",
-  "Gift Guides",
-  "Verified",
-  "Sale",
+  "Coffee Machines",
+  "Grinders",
+  "Kettles",
+  "Mugs",
+  "Beans",
+  "Accessories",
 ];
 
-const WAYFAIR = "#7B189F";
-const WAYFAIR_DARK = "#5A0F77";
-
 export default function Navbar() {
+  const nav = useNavigate();
+  const [count, setCount] = useState(0);
   const [q, setQ] = useState("");
-  const [count, setCount] = useState<number>(0);
 
   useEffect(() => {
     const sync = () => setCount(cartCount());
     sync();
-
-    window.addEventListener("cart:changed", sync);
     window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
     return () => {
-      window.removeEventListener("cart:changed", sync);
       window.removeEventListener("storage", sync);
+      window.removeEventListener("focus", sync);
     };
   }, []);
 
-  return (
-    <header className="w-full border-b border-zinc-200">
-      <div style={{ backgroundColor: WAYFAIR }} className="text-white">
-        <div className="mx-auto max-w-7xl px-4 py-2 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Link to="/" className="font-extrabold tracking-tight text-lg">
-              coffee<span className="opacity-90">shop</span>
-            </Link>
-            <div className="hidden md:block text-xs opacity-90">
-              Fast &amp; Free Shipping Over $35*
-            </div>
-          </div>
+  const activeClass = ({ isActive }: { isActive: boolean }) =>
+    isActive
+      ? "text-[#7b189f] font-extrabold"
+      : "text-zinc-700 hover:text-[#7b189f]";
 
-          <div className="flex items-center gap-2 text-sm">
-            <button className="hidden sm:inline-flex hover:underline">Rewards</button>
-            <span className="hidden sm:inline-flex opacity-70">|</span>
-            <button className="hidden sm:inline-flex hover:underline">Financing</button>
-            <span className="hidden sm:inline-flex opacity-70">|</span>
-            <button className="hidden sm:inline-flex hover:underline">Professional</button>
+  const onSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    // If later you add search filtering, route with querystring:
+    // nav(`/?q=${encodeURIComponent(q)}`)
+    nav("/");
+  };
+
+  const badge = useMemo(() => {
+    if (!count) return null;
+    return (
+      <span className="ml-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#7b189f] px-2 text-xs font-extrabold text-white">
+        {count}
+      </span>
+    );
+  }, [count]);
+
+  return (
+    <header className="sticky top-0 z-50 w-full bg-white">
+      {/* Top utility bar */}
+      <div className="bg-[#7b189f] text-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2 text-sm">
+          <div className="truncate">
+            Free shipping* • Fast checkout • Built-in +50% margin
+          </div>
+          <div className="hidden items-center gap-4 md:flex">
+            <span className="opacity-90">Rewards</span>
+            <span className="opacity-90">Financing</span>
+            <span className="opacity-90">Support</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center gap-3">
-          <Link
-            to="/"
-            className="hidden sm:flex items-center gap-2 font-bold"
-            style={{ color: WAYFAIR }}
-          >
-            <span className="text-2xl">☕</span>
-            <span className="text-xl">CoffeeShop</span>
+      {/* Main bar */}
+      <div className="border-b">
+        <div className="mx-auto grid max-w-6xl grid-cols-12 items-center gap-3 px-4 py-3">
+          {/* Logo */}
+          <Link to="/" className="col-span-12 flex items-center gap-3 md:col-span-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#7b189f] text-white text-lg">
+              ☕
+            </div>
+            <div className="leading-tight">
+              <div className="text-lg font-extrabold">Coffee Shop</div>
+              <div className="text-xs text-zinc-500">Deals</div>
+            </div>
           </Link>
 
-          <div className="flex-1">
-            <div className="flex w-full overflow-hidden rounded-full border border-zinc-300">
+          {/* Search */}
+          <form
+            onSubmit={onSearch}
+            className="col-span-12 md:col-span-6"
+          >
+            <div className="flex overflow-hidden rounded-2xl border bg-white">
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                className="w-full px-4 py-3 outline-none"
                 placeholder="Find anything coffee..."
-                className="w-full px-5 py-3 outline-none"
               />
               <button
-                className="px-6 py-3 text-white"
-                aria-label="Search"
-                style={{ backgroundColor: WAYFAIR }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = WAYFAIR_DARK)}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = WAYFAIR)}
-                onClick={() => alert(`Search later: "${q}"`)}
+                type="submit"
+                className="bg-[#7b189f] px-5 font-semibold text-white hover:opacity-90"
               >
-                🔍
+                Search
               </button>
             </div>
-          </div>
+          </form>
 
-          <div className="flex items-center gap-4 text-sm">
-            <Link to="/admin/login" className="hover:underline">
+          {/* Right actions */}
+          <div className="col-span-12 flex items-center justify-between gap-3 md:col-span-3 md:justify-end">
+            <NavLink to="/" className={activeClass}>
+              Home
+            </NavLink>
+
+            <NavLink to="/admin/login" className={activeClass}>
               Admin
+            </NavLink>
+
+            <Link
+              to="/cart"
+              className="rounded-full border px-4 py-2 font-semibold text-zinc-800 hover:border-[#7b189f] hover:text-[#7b189f]"
+            >
+              Cart{badge}
             </Link>
 
-            <Link to="/cart" className="relative hover:underline font-semibold">
-              Cart
-              <span
-                className="absolute -top-2 -right-3 h-5 min-w-5 px-1 rounded-full text-white text-xs flex items-center justify-center"
-                style={{ backgroundColor: WAYFAIR }}
-              >
-                {count}
-              </span>
+            <Link
+              to="/checkout"
+              className="rounded-full bg-[#7b189f] px-5 py-2 font-semibold text-white hover:opacity-90"
+            >
+              Checkout
             </Link>
           </div>
         </div>
       </div>
 
-      <nav className="bg-white">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="flex gap-4 overflow-x-auto py-2">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c}
-                className="whitespace-nowrap text-sm text-zinc-700"
-                onMouseOver={(e) => (e.currentTarget.style.color = WAYFAIR)}
-                onMouseOut={(e) => (e.currentTarget.style.color = "")}
-              >
-                {c}
-              </button>
-            ))}
+      {/* Category bar */}
+      <div className="border-b bg-white">
+        <div className="mx-auto flex max-w-6xl items-center gap-5 overflow-x-auto px-4 py-2 text-sm">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              className="whitespace-nowrap text-zinc-700 hover:text-[#7b189f]"
+              onClick={() => nav("/")}
+              type="button"
+            >
+              {c}
+            </button>
+          ))}
+          <div className="ml-auto hidden text-xs text-zinc-500 md:block">
+            Verified deals • New arrivals
           </div>
-        </div>
-      </nav>
-
-      <div style={{ backgroundColor: WAYFAIR }} className="text-white">
-        <div className="mx-auto max-w-7xl px-4 py-2 text-center text-sm">
-          Up to 60% OFF ends tonight | 72-Hour Clearout →
         </div>
       </div>
     </header>

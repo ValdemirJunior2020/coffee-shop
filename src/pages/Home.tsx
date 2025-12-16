@@ -1,251 +1,118 @@
-import { useEffect, useMemo, useState } from "react";
+// src/pages/Home.tsx
+import { useMemo } from "react";
 import { addToCart } from "../lib/cartStore";
+import type { Product } from "../lib/types";
 
-type AdminProduct = {
-  id: string;
-  title: string;
-  basePrice: number;
-  description: string;
-  images: string; // comma-separated paths
-  active: boolean;
-  createdAt: string;
-};
-
-type StoreProduct = {
-  id: string;
-  title: string;
-  basePrice: number;
-  description: string;
-  images: string[];
-  active: boolean;
-};
-
-const PRODUCTS_KEY = "coffee_shop_products_v1";
 const applyMargin = (base: number) => Math.round(base * 1.5 * 100) / 100;
 
-function parseImages(images: string): string[] {
-  return images
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function loadProducts(): StoreProduct[] {
-  const raw = localStorage.getItem(PRODUCTS_KEY);
-  if (!raw) return [];
-  try {
-    const data = JSON.parse(raw) as AdminProduct[];
-    return data.map((p) => ({
-      id: p.id,
-      title: p.title,
-      basePrice: Number(p.basePrice),
-      description: p.description,
-      images: parseImages(p.images),
-      active: !!p.active,
-    }));
-  } catch {
-    return [];
-  }
-}
+const PRODUCTS: Product[] = [
+  {
+    id: "p1",
+    name:
+      "20Bar Espresso Machine with Conical Burr Grinder, Milk Frother Steam Wand, 1.8L Water Tank",
+    description:
+      "Makes Cappuccino, Latte, Iced Coffee And Americano. Home Barista, Professional Design.",
+    image: "/first.png",
+    category: "Coffee Machines",
+    basePrice: 245.8,
+  },
+  {
+    id: "p2",
+    name:
+      "Hot & Iced Coffee Machine (20Bar) With Rapid Cold Brew | Espresso Maker Featuring Steam Wand, 37oz Tank & Touch Screen",
+    description:
+      "Great For Latte/ Cappuccino, Gift For Coffee Enthusiasts. Brand: YABANO",
+    image: "/product-2.png",
+    category: "Coffee Machines",
+    basePrice: 76.49,
+  },
+];
 
 export default function Home() {
-  const [products, setProducts] = useState<StoreProduct[]>([]);
-
-  useEffect(() => {
-    const load = () => setProducts(loadProducts());
-    load();
-
-    window.addEventListener("storage", load);
-    return () => window.removeEventListener("storage", load);
+  const productsWithSell = useMemo(() => {
+    return PRODUCTS.map((p) => {
+      const base = Number(p.basePrice);
+      const safeBase = Number.isFinite(base) ? base : 0;
+      const sell = applyMargin(safeBase);
+      return { ...p, basePrice: safeBase, sellPrice: sell };
+    });
   }, []);
 
-  const visibleProducts = useMemo(() => {
-    return products.filter((p) => p.active && p.images.length > 0).slice(0, 5);
-  }, [products]);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected =
-    visibleProducts.find((p) => p.id === selectedId) || visibleProducts[0];
-
-  const [activeImg, setActiveImg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selected) return;
-    setSelectedId(selected.id);
-    setActiveImg(selected.images[0] ?? null);
-  }, [selected?.id]); // keep it simple
-
-  const switchProduct = (id: string) => {
-    const p = visibleProducts.find((x) => x.id === id);
-    if (!p) return;
-    setSelectedId(id);
-    setActiveImg(p.images[0] ?? null);
-  };
-
-  if (!selected) {
-    return (
-      <div className="border rounded-2xl p-6 bg-white">
-        <h1 className="text-2xl font-extrabold">No products yet</h1>
-        <p className="text-zinc-600 mt-2">
-          Go to <b>/admin</b> and add products with images like{" "}
-          <b>/first.png,/second.png</b>
-        </p>
-      </div>
-    );
-  }
-
-  const sellPrice = applyMargin(selected.basePrice);
-
   return (
-    <div className="space-y-10">
-      {/* PRODUCT CARDS */}
-      <section className="grid gap-4 md:grid-cols-2">
-        {visibleProducts.map((p) => {
-          const isActive = p.id === selected.id;
-          const price = applyMargin(p.basePrice);
-          const cover = p.images[0] ?? null;
-
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => switchProduct(p.id)}
-              className={[
-                "text-left border rounded-2xl p-4 bg-white transition",
-                isActive
-                  ? "border-purple-700 ring-2 ring-purple-700/20"
-                  : "border-zinc-200 hover:border-purple-700",
-              ].join(" ")}
-            >
-              <div className="flex gap-4">
-                <div className="w-28 h-28 border rounded-xl bg-zinc-50 flex items-center justify-center overflow-hidden">
-                  {cover ? (
-                    <img
-                      src={cover}
-                      alt={p.title}
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <div className="text-xs text-zinc-500">No image</div>
-                  )}
-                </div>
-
-                <div className="flex-1">
-                  <div className="font-extrabold leading-snug line-clamp-2">
-                    {p.title}
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="text-xl font-extrabold text-purple-700">
-                      ${price.toFixed(2)}
-                    </div>
-                    <div className="text-xs text-zinc-500">(+50% margin)</div>
-                  </div>
-
-                  <div className="mt-2 text-xs text-zinc-500 line-clamp-1">
-                    {p.description}
-                  </div>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </section>
-
-      {/* PRODUCT DETAIL */}
-      <section className="grid gap-8 md:grid-cols-2">
-        {/* Images */}
-        <div>
-          <div className="border rounded-2xl bg-zinc-50 p-4">
-            {activeImg ? (
-              <img
-                src={activeImg}
-                alt={selected.title}
-                className="w-full h-[420px] object-contain"
-              />
-            ) : (
-              <div className="h-[420px] flex items-center justify-center text-zinc-500">
-                No image
-              </div>
-            )}
+    <div className="space-y-6">
+      {/* Hero (Wayfair-ish) */}
+      <div className="rounded-3xl border bg-white p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-4xl font-extrabold">
+              Coffee Shop <span className="text-[#7b189f]">Deals</span>
+            </h1>
+            <p className="mt-2 text-zinc-600">
+              Wayfair-inspired style • +50% margin built in • Add to cart and checkout.
+            </p>
           </div>
 
-          <div className="grid gap-2 mt-4 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
-            {selected.images.map((img, idx) => {
-              const isActive = img === activeImg;
-              return (
+          <div className="mt-3 rounded-2xl bg-[#7b189f]/10 px-4 py-3 text-sm text-zinc-700 md:mt-0">
+            <span className="font-bold text-[#7b189f]">Today:</span> Extra deals on espresso
+            machines
+          </div>
+        </div>
+      </div>
+
+      {/* Products */}
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+        {productsWithSell.map((p) => (
+          <div key={p.id} className="rounded-3xl border bg-white p-4">
+            <div className="aspect-[4/3] w-full overflow-hidden rounded-2xl bg-zinc-50">
+              {p.image ? (
+                <img
+                  src={p.image}
+                  alt={p.name}
+                  className="h-full w-full object-contain p-4"
+                />
+              ) : null}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <div className="text-xs font-bold text-[#7b189f]">{p.category}</div>
+              <div className="text-lg font-extrabold leading-tight">{p.name}</div>
+              <div className="text-sm text-zinc-600 line-clamp-3">{p.description}</div>
+
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-xs text-zinc-500">Your price</div>
+                  <div className="text-2xl font-extrabold">
+                    ${p.sellPrice.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Cost: ${p.basePrice.toFixed(2)} • +50%
+                  </div>
+                </div>
+
                 <button
-                  key={`${selected.id}_${idx}_${img}`} // ✅ unique key
-                  type="button"
-                  onClick={() => setActiveImg(img)}
-                  className={[
-                    "border rounded-xl bg-white p-2 cursor-pointer hover:border-purple-600",
-                    isActive
-                      ? "border-purple-700 ring-2 ring-purple-700/20"
-                      : "border-zinc-200",
-                  ].join(" ")}
+                  className="rounded-full bg-[#7b189f] px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
+                  onClick={() => {
+                    addToCart(
+                      {
+                        id: p.id,
+                        name: p.name,
+                        description: p.description,
+                        image: p.image,
+                        category: p.category,
+                        basePrice: p.basePrice,
+                      },
+                      1
+                    );
+                    alert("Added to cart ✅");
+                  }}
                 >
-                  <img
-                    src={img}
-                    alt="thumb"
-                    className="h-16 w-full object-contain"
-                  />
+                  Add
                 </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="space-y-4">
-          <h1 className="text-3xl font-extrabold leading-tight">
-            {selected.title}
-          </h1>
-
-          <div className="flex items-center gap-3">
-            <div className="text-3xl font-extrabold text-purple-700">
-              ${sellPrice.toFixed(2)}
-            </div>
-            <div className="text-sm text-zinc-500">
-              Base ${selected.basePrice.toFixed(2)} • +50%
+              </div>
             </div>
           </div>
-
-          <p className="text-zinc-700">{selected.description}</p>
-
-          <div className="flex gap-3 pt-2">
-            <button
-              className="rounded-full bg-purple-700 text-white px-6 py-3 font-semibold hover:bg-purple-800"
-              onClick={() => {
-                const cover = selected.images[0];
-                if (!cover) {
-                  alert("This product has no image. Add images in /admin first.");
-                  return;
-                }
-
-                addToCart({
-                  productId: selected.id,
-                  title: selected.title,
-                  image: cover,
-                  basePrice: selected.basePrice,
-                });
-
-                alert("Added to cart ✅");
-              }}
-            >
-              Add to Cart
-            </button>
-
-            <button className="rounded-full border px-6 py-3 font-semibold hover:border-purple-700 hover:text-purple-700">
-              Buy Now
-            </button>
-          </div>
-
-          <div className="text-xs text-zinc-500 pt-2">
-            Next: Checkout form + Google address autocomplete + Stripe + Supabase orders.
-          </div>
-        </div>
-      </section>
+        ))}
+      </div>
     </div>
   );
 }

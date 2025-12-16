@@ -1,131 +1,76 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-
-type Order = {
-  id: string;
-  created_at: string;
-  status: string;
-  customer: {
-    fullName: string;
-    email: string;
-    phone: string;
-  };
-  shipping: {
-    address: string;
-    address2?: string;
-    city: string;
-    state: string;
-    zip: string;
-  };
-  cart: {
-    productId: string;
-    title: string;
-    qty: number;
-    basePrice: number;
-  }[];
-  totals: {
-    base: number;
-    sell: number;
-  };
-  profit_estimate: number;
-};
+import type { OrderRow } from "../lib/types";
 
 export default function AdminOrders() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<OrderRow[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadOrders();
-  }, []);
-
-  async function loadOrders() {
+  const load = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("orders")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    setLoading(false);
 
     if (error) {
       console.error(error);
-      alert("Failed to load orders. Check console.");
-    } else {
-      setOrders(data as Order[]);
+      alert("Orders fetch failed (RLS). If you kept orders SELECT private, you need admin policy.");
+      return;
     }
-    setLoading(false);
-  }
+    setRows((data as any[]) as OrderRow[]);
+  };
 
-  if (loading) {
-    return <div className="text-lg font-semibold">Loading orders…</div>;
-  }
+  useEffect(() => {
+    load();
+  }, []);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-extrabold">Admin – Orders</h1>
-
-      {orders.length === 0 && (
-        <div className="border rounded-xl p-4 bg-white">
-          No orders yet.
+    <div className="space-y-5">
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-3xl font-extrabold">Admin Orders</h1>
+          <p className="text-zinc-600 text-sm">Recent orders</p>
         </div>
-      )}
-
-      {orders.map((order) => (
-        <div
-          key={order.id}
-          className="border rounded-2xl bg-white p-5 space-y-4"
+        <button
+          onClick={load}
+          className="rounded-full border px-5 py-2 font-semibold hover:border-wayfairPurple hover:text-wayfairPurple"
         >
-          <div className="flex justify-between flex-wrap gap-2">
-            <div>
-              <div className="font-bold">
-                Order ID: <span className="text-sm">{order.id}</span>
-              </div>
-              <div className="text-sm text-zinc-600">
-                {new Date(order.created_at).toLocaleString()}
-              </div>
+          Refresh
+        </button>
+      </div>
+
+      {loading && <div className="text-sm text-zinc-500">Loading…</div>}
+
+      <div className="space-y-3">
+        {rows.map((o) => (
+          <div key={o.id} className="border rounded-2xl bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-extrabold">Order #{o.id}</div>
+              <div className="text-sm text-zinc-600">{new Date(o.created_at).toLocaleString()}</div>
             </div>
 
-            <div className="font-bold text-purple-700">
-              ${order.totals.sell.toFixed(2)}
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <h3 className="font-bold mb-1">Customer</h3>
-              <div>{order.customer.fullName}</div>
-              <div className="text-sm">{order.customer.email}</div>
-              <div className="text-sm">{order.customer.phone}</div>
+            <div className="mt-2 text-sm">
+              <div><b>Status:</b> {o.status}</div>
+              <div><b>Email:</b> {o.customer_email || "—"}</div>
+              <div><b>Stripe Session:</b> {o.stripe_session_id || "—"}</div>
             </div>
 
-            <div>
-              <h3 className="font-bold mb-1">Shipping</h3>
-              <div>{order.shipping.address}</div>
-              {order.shipping.address2 && <div>{order.shipping.address2}</div>}
-              <div>
-                {order.shipping.city}, {order.shipping.state}{" "}
-                {order.shipping.zip}
-              </div>
+            <div className="mt-3 text-sm border rounded-xl p-3 bg-zinc-50">
+              <div className="font-semibold mb-1">Shipping</div>
+              <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(o.shipping, null, 2)}</pre>
+            </div>
+
+            <div className="mt-3 text-sm border rounded-xl p-3 bg-zinc-50">
+              <div className="font-semibold mb-1">Cart</div>
+              <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(o.cart, null, 2)}</pre>
             </div>
           </div>
-
-          <div>
-            <h3 className="font-bold mb-1">Items to Buy from Temu</h3>
-            <ul className="list-disc pl-5">
-              {order.cart.map((item, idx) => (
-                <li key={idx}>
-                  {item.qty}× {item.title} (Base ${item.basePrice})
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="text-sm text-zinc-600">
-            Profit estimate:{" "}
-            <span className="font-bold">
-              ${order.profit_estimate.toFixed(2)}
-            </span>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
