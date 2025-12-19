@@ -8,27 +8,20 @@ const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefine
 
 function loadGooglePlaces(key?: string) {
   return new Promise<void>((resolve, reject) => {
-    if (!key) {
-      reject(new Error("Missing VITE_GOOGLE_MAPS_API_KEY"));
-      return;
-    }
-    if ((window as any).google?.maps?.places) {
-      resolve();
-      return;
-    }
-    const existing = document.getElementById("google-places-script");
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Google script failed")));
-      return;
-    }
+    if (!key) return reject(new Error("Missing VITE_GOOGLE_MAPS_API_KEY"));
+    if ((window as any).google?.maps?.places) return resolve();
+
+    const existing = document.getElementById("google-places-script") as HTMLScriptElement | null;
+    if (existing) return resolve();
+
     const script = document.createElement("script");
     script.id = "google-places-script";
     script.async = true;
     script.defer = true;
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
       key
-    )}&libraries=places`;
+    )}&libraries=places&loading=async`;
+
     script.onload = () => resolve();
     script.onerror = () => reject(new Error("Google script failed"));
     document.body.appendChild(script);
@@ -62,7 +55,7 @@ export default function Checkout() {
   useEffect(() => {
     const items = getCart();
     setCart(items);
-    if (items.length === 0) nav("/cart");
+    if (!items || items.length === 0) nav("/cart");
   }, [nav]);
 
   const totals = useMemo(() => {
@@ -81,12 +74,19 @@ export default function Checkout() {
     loadGooglePlaces(GOOGLE_KEY)
       .then(() => {
         if (cancelled) return;
-        setGoogleReady(true);
 
         const input = addressInputRef.current;
         if (!input) return;
 
         const google = (window as any).google;
+        if (!google?.maps?.places?.Autocomplete) {
+          setGoogleError("Google Autocomplete not available. Type address manually.");
+          setGoogleReady(false);
+          return;
+        }
+
+        setGoogleReady(true);
+
         const ac = new google.maps.places.Autocomplete(input, {
           types: ["address"],
           fields: ["address_components", "formatted_address"],
@@ -95,13 +95,11 @@ export default function Checkout() {
         ac.addListener("place_changed", () => {
           const place = ac.getPlace();
           const formatted = place?.formatted_address || "";
-          setAddress(formatted);
+          if (formatted) setAddress(formatted);
 
           const comps = place?.address_components || [];
-
           const get = (type: string) =>
             comps.find((c: any) => c.types?.includes(type))?.long_name || "";
-
           const getShort = (type: string) =>
             comps.find((c: any) => c.types?.includes(type))?.short_name || "";
 
@@ -112,6 +110,7 @@ export default function Checkout() {
       })
       .catch((err) => {
         setGoogleError(err?.message || "Google Places not available");
+        setGoogleReady(false);
       });
 
     return () => {
@@ -122,6 +121,7 @@ export default function Checkout() {
   const saveAndContinue = async () => {
     if (saving) return;
 
+    if (!cart || cart.length === 0) return alert("Your cart is empty.");
     if (!fullName.trim()) return alert("Please enter your full name.");
     if (!email.trim()) return alert("Please enter your email.");
     if (!phone.trim()) return alert("Please enter your phone number.");
@@ -138,13 +138,12 @@ export default function Checkout() {
       status: "pending_payment",
     };
 
-    // Always save locally too (backup)
     localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pending));
 
     try {
       setSaving(true);
 
-      // 1) Save to Supabase and get the inserted row id
+      // 1) Save to Supabase
       const { data, error } = await supabase
         .from("orders")
         .insert({
@@ -165,28 +164,33 @@ export default function Checkout() {
         return;
       }
 
-      const orderId = data.id;
+      const orderId = String(data.id);
 
-      // 2) Call Edge Function to create Stripe Checkout session
+      // 2) Create Stripe session (✅ send amount)
       const { data: fnData, error: fnErr } = await supabase.functions.invoke(
         "create-checkout-session",
-        { body: { orderId } }
+        {
+          body: {
+            orderId,
+            amount: totals.sell, // dollars
+            currency: "usd",
+          },
+        }
       );
 
       if (fnErr) {
         console.error(fnErr);
-        alert("Order saved ✅ but Stripe session failed. Check console.");
+        alert(`Order saved ✅ but Stripe session failed: ${fnErr.message}`);
         return;
       }
 
-      const url = (fnData as any)?.url;
+      const url = (fnData as any)?.url as string | undefined;
       if (!url) {
         console.error("Missing Stripe url", fnData);
         alert("Order saved ✅ but Stripe URL missing.");
         return;
       }
 
-      // 3) Redirect to Stripe Checkout
       window.location.href = url;
     } finally {
       setSaving(false);
@@ -201,7 +205,7 @@ export default function Checkout() {
           <div>
             <h1 className="text-3xl font-extrabold">Checkout</h1>
             <p className="text-zinc-600">
-              Enter shipping info. Address autocomplete uses Google Places.
+              Enter shipping info. Address autocomplete uses Google Places (or type manually).
             </p>
           </div>
           <Link
@@ -216,8 +220,8 @@ export default function Checkout() {
           <div className="border rounded-2xl p-4 bg-zinc-50 text-sm text-zinc-700">
             {googleError ? (
               <>
-                <div className="font-bold text-red-600">Google Places not loaded</div>
-                <div className="mt-1">{googleError}. You can still type manually.</div>
+                <div className="font-bold text-amber-700">Google Places not active</div>
+                <div className="mt-1">{googleError}</div>
               </>
             ) : (
               <div>Loading Google address autocomplete…</div>
@@ -320,7 +324,7 @@ export default function Checkout() {
 
           <button
             className="mt-2 w-full rounded-full bg-purple-700 text-white px-6 py-3 font-semibold hover:bg-purple-800 disabled:opacity-60"
-            disabled={saving}
+            disabled={saving || cart.length === 0}
             onClick={saveAndContinue}
           >
             {saving ? "Saving..." : "Pay with Stripe"}
@@ -335,9 +339,7 @@ export default function Checkout() {
         <div className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-zinc-600">Items</span>
-            <span className="font-semibold">
-              {cart.reduce((s, i) => s + i.qty, 0)}
-            </span>
+            <span className="font-semibold">{cart.reduce((s, i) => s + i.qty, 0)}</span>
           </div>
 
           <div className="flex justify-between">
@@ -347,9 +349,7 @@ export default function Checkout() {
 
           <div className="flex justify-between">
             <span className="text-zinc-600">Profit estimate</span>
-            <span className="font-semibold">
-              ${(totals.sell - totals.base).toFixed(2)}
-            </span>
+            <span className="font-semibold">${(totals.sell - totals.base).toFixed(2)}</span>
           </div>
         </div>
 

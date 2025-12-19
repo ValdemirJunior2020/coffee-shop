@@ -1,13 +1,16 @@
 // src/lib/cartStore.ts
 import type { CartItem, Product } from "./types";
 
+// ✅ Re-export types so other files can import from "../lib/cartStore"
+export type { CartItem, Product };
+
 const CART_KEY = "coffee_shop_cart_v1";
 
 function read(): CartItem[] {
   try {
     const raw = localStorage.getItem(CART_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as CartItem[]) : [];
   } catch {
     return [];
@@ -36,10 +39,11 @@ export function addToCart(product: Product, qty = 1) {
   const idx = items.findIndex((x) => x.id === product.id);
 
   if (idx >= 0) {
-    items[idx] = { ...items[idx], qty: items[idx].qty + q };
+    items[idx] = { ...items[idx], qty: (Number(items[idx].qty) || 0) + q };
   } else {
     items.push({ ...product, qty: q });
   }
+
   write(items);
 }
 
